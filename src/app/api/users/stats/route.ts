@@ -5,6 +5,10 @@ import { NextResponse } from 'next/server';
 
 const USERS_KEY = 'miniClickerUsersData';
 
+// Важно: отключаем любые попытки кэшировать этот эндпоинт на уровне Next.js
+// чтобы рейтинг и статистика всегда брались из актуального KV-хранилища.
+export const dynamic = 'force-dynamic';
+
 interface UserStats {
   userId: number;
   username?: string;
@@ -58,7 +62,13 @@ export async function GET() {
 export async function POST(request: Request) {
   try {
     const body = await request.json();
-    const { username, firstName, lastName, gameStats } = body;
+    const { username, firstName, lastName, gameStats } = body ?? {};
+
+    // Дополнительная защита от некорректного тела запроса
+    const safeGameStats =
+      gameStats && typeof gameStats === 'object'
+        ? gameStats
+        : {};
 
     // ИСПРАВЛЕНО: Берём userId из кастомного заголовка, который клиент уже отправляет
     const userIdHeader = request.headers.get('x-telegram-user-id');
@@ -87,15 +97,20 @@ export async function POST(request: Request) {
       joinDate: new Date().toISOString(),
     };
 
+    const clicksDelta = Number((safeGameStats as any).clicks) || 0;
+    const balance = Number((safeGameStats as any).balance) || 0;
+    const clickPowerLevel = Number((safeGameStats as any).clickPowerLevel) || 0;
+    const autoClickerLevel = Number((safeGameStats as any).autoClickerLevel) || 0;
+
     const updatedStats: UserStats = {
       ...existing,
       username: username ?? existing.username,
       firstName: firstName ?? existing.firstName,
       lastName: lastName ?? existing.lastName,
-      totalClicks: existing.totalClicks + (gameStats.clicks || 0),
-      totalBalance: Math.max(existing.totalBalance, gameStats.balance || 0),
-      clickPowerLevel: Math.max(existing.clickPowerLevel, gameStats.clickPowerLevel || 0),
-      autoClickerLevel: Math.max(existing.autoClickerLevel, gameStats.autoClickerLevel || 0),
+      totalClicks: existing.totalClicks + clicksDelta,
+      totalBalance: Math.max(existing.totalBalance, balance),
+      clickPowerLevel: Math.max(existing.clickPowerLevel, clickPowerLevel),
+      autoClickerLevel: Math.max(existing.autoClickerLevel, autoClickerLevel),
       gamesPlayed: existing.gamesPlayed + 1,
       lastActive: new Date().toISOString(),
       // joinDate остаётся прежней
