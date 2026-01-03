@@ -1,4 +1,4 @@
-// File: C:\Users\Admin\Documents\Work\The company\KiberOne\groups\older\creating_mini_app_tg\mini-clicker-next\src\app\page.tsx
+// File: C:\Users\Admin\Documents\Work\The company\kiber_one\groups\older\mini-clicker-next\src\app\page.tsx
 import * as entry from '../../../src/app/page.js'
 import type { ResolvingMetadata, ResolvingViewport } from 'next/dist/lib/metadata/types/metadata-interface.js'
 

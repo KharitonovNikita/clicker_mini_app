@@ -299,6 +299,10 @@ export default function GameContainer() {
     autoClickerLevel: 0,
   });
 
+  // Флаг, чтобы не затирать сохранения начальным состоянием
+  // Пока мы не попробовали загрузить state из localStorage, автосохранение выключено
+  const [hasLoadedFromStorage, setHasLoadedFromStorage] = useState(false);
+
   // UI состояния
   const [isButtonAnimating, setIsButtonAnimating] = useState(false); // Отслеживание нажатия кнопки
   const [showWelcome, setShowWelcome] = useState(false); // Показывать или скрывать приветственный экран при первом запуске | По умолчанию - показываем
@@ -470,12 +474,6 @@ export default function GameContainer() {
 
 
 
-
-
-
-
-
-
   // Инициализация Telegram WebApp
   // Выполняется при измении функции getUserStats
   useEffect(() => {
@@ -550,8 +548,10 @@ export default function GameContainer() {
       } catch (e) {
         console.error('Ошибка чтения сохранения');
       }
-    
     }
+
+    // В любом случае считаем попытку загрузки завершённой — можно включать автосохранение
+    setHasLoadedFromStorage(true);
   }, [isTelegramReady]);
 
 
@@ -560,9 +560,12 @@ export default function GameContainer() {
   // Автосохранение в localStorage
   // Каждый раз, когда будет меняться игровое состояние текущей сессии gameState, то 
   // Происходит сохранение информации в localStorage как JSON-строку.
+  // ⚠ Важно: начинаем автосохранение только после того, как однажды попытались загрузить state из localStorage,
+  // чтобы не перезаписывать сохранённый прогресс начальными нулями при первом монтировании.
   useEffect(() => {
+    if (!hasLoadedFromStorage) return;
     localStorage.setItem('miniClickerState', JSON.stringify(gameState));
-  }, [gameState]);
+  }, [gameState, hasLoadedFromStorage]);
 
 
 
@@ -629,6 +632,9 @@ export default function GameContainer() {
 
 
 
+
+
+
   // ========================
   // ЛОГИКА ИГРЫ
   // ========================
@@ -662,10 +668,6 @@ export default function GameContainer() {
   };
 
 
-
-
-
-
   const upgradeClickPower = () => {
     const cost = getClickPowerCost(); // Стоимость следующего уровня
     if (gameState.balance < cost) return; // Нет денег - пока.
@@ -678,8 +680,6 @@ export default function GameContainer() {
       clickPower: prev.clickPower + 1,
     }));
   };
-
-
   
   const buyAutoClicker = () => { // Тоже самое для автокликера
     const cost = getAutoClickerCost();
@@ -695,116 +695,196 @@ export default function GameContainer() {
 
 
 
-
-
-
-
-
-
-
-
-
-
   // ========================
   // РЕНДЕР
   // ========================
 
-  if (showWelcome && user) {
-    return (
-      <WelcomeOverlay>
-        <WelcomeText>Привет, {user.username || user.first_name}!</WelcomeText>
-        <WelcomeSubtitle>
-          Добро пожаловать в Mini Clicker!<br />
-          Нажми на кнопку, чтобы начать играть
-        </WelcomeSubtitle>
-        <StartButton onClick={() => setShowWelcome(false)}>
-          Начать игру
-        </StartButton>
-      </WelcomeOverlay>
-    );
-  }
 
+// ========================
+// РЕНДЕР (JSX)
+// ========================
+
+// ⚠️ УСЛОВНЫЙ РАННИЙ RETURN
+// Если showWelcome === true И пользователь уже получен,
+// то компонент ПОЛНОСТЬЮ возвращает приветственный экран.
+// Всё, что ниже — НЕ будет выполнено.
+if (showWelcome && user) {
   return (
-    <Container className="telegram-web-app scroll-container">
-      {/* Информация о пользователе */}
-      {user && (
-        <UserInfo>
-          <UserName>
-            {user.first_name} {user.last_name || ''}{' '}
-            {user.username && `(@${user.username})`}
-          </UserName>
-          <UserId>ID: {user.id}</UserId>
-          {(() => {
-            const stats = getUserStats(user.id);
-            return stats ? (
-              <div style={{ marginTop: '10px', fontSize: '12px', color: '#666' }}>
-                <div>Игр сыграно: {stats.gamesPlayed}</div>
-                <div>Рекорд баланса: {stats.totalBalance.toLocaleString()}</div>
-                <div>Всего кликов: {stats.totalClicks.toLocaleString()}</div>
-              </div>
-            ) : null;
-          })()}
-        </UserInfo>
-      )}
+    // WelcomeOverlay — styled.div | Полноэкранный оверлей, перекрывающий всё приложение
+    <WelcomeOverlay>
 
-      {/* Статистика */}
-      <Header>
-        <Card>
-          <CardTitle>Баланс</CardTitle>
-          <CardValue>{gameState.balance.toLocaleString()}</CardValue>
-        </Card>
-        <Card>
-          <CardTitle>Клики</CardTitle>
-          <CardValue>{gameState.clicks.toLocaleString()}</CardValue>
-        </Card>
-      </Header>
+      {/* WelcomeText — styled.h1
+          Главный заголовок приветственного экрана */}
+      <WelcomeText>
+        Привет, {user.username || user.first_name}!
+      </WelcomeText>
 
-      {/* Кнопка клика  - Игрок нажал на кнопку*/}
-      <MainButtonContainer>
-        <ClickButton
-          onClick={handleClick}
-          $isAnimating={isButtonAnimating}
-        >
-          <ButtonText>НАЖМИ!</ButtonText>
-        </ClickButton>
-      </MainButtonContainer>
+      {/* WelcomeSubtitle — styled.p | Текст-пояснение для игрока */}
+      <WelcomeSubtitle>
+        Добро пожаловать в Mini Clicker!
+        <br />
+        Нажми на кнопку, чтобы начать играть
+      </WelcomeSubtitle>
 
-      {/* Улучшения */}
-      <Upgrades>
-        <UpgradeCard>
-          <UpgradeTitle>Сила клика</UpgradeTitle>
-          <UpgradeInfo>
-            <span>Уровень: {gameState.clickPowerLevel}</span>
-            <span>Сила: {gameState.clickPower}</span>
-          </UpgradeInfo>
-          <UpgradeInfo>
-            <span>Стоимость: {getClickPowerCost().toLocaleString()}</span>
-          </UpgradeInfo>
-          <UpgradeButton
-            onClick={upgradeClickPower}
-            disabled={gameState.balance < getClickPowerCost()}
-          >
-            Улучшить
-          </UpgradeButton>
-        </UpgradeCard>
+      {/* StartButton — styled.button
+          При клике меняем состояние showWelcome,
+          React делает повторный рендер */}
+      <StartButton onClick={() => setShowWelcome(false)}>
+        Начать игру
+      </StartButton>
 
-        <UpgradeCard>
-          <UpgradeTitle>Автокликер</UpgradeTitle>
-          <UpgradeInfo>
-            <span>Уровень: {gameState.autoClickerLevel}</span>
-            <span>Доход/сек: {gameState.autoClicker}</span>
-          </UpgradeInfo>
-          <UpgradeInfo>
-            <span>Стоимость: {getAutoClickerCost().toLocaleString()}</span>
-          </UpgradeInfo>
-          <UpgradeButton
-            onClick={buyAutoClicker}
-            disabled={gameState.balance < getAutoClickerCost()}
-          >
-            Купить
-          </UpgradeButton>
-        </UpgradeCard>
-      </Upgrades>
-    </Container>
+    </WelcomeOverlay>
   );
+}
+
+
+
+// ========================
+// ОСНОВНОЙ ИНТЕРФЕЙС ИГРЫ
+// ========================
+
+return (
+  // Container — styled.div
+  // Главный layout-контейнер приложения
+  <Container className="telegram-web-app scroll-container">
+
+    {/* ИНФОРМАЦИЯ О ПОЛЬЗОВАТЕЛЕ */}
+
+    {/* Условный рендеринг | Если user === null → ничего не рисуем */}
+    {user && (
+      <UserInfo>
+
+        {/* UserName — styled.div - Отображает имя, фамилию и username */}
+        <UserName>
+          {user.first_name} {user.last_name || ''}{' '}
+          {/* username показываем только если он существует */}
+          {user.username && `(@${user.username})`}
+        </UserName>
+
+        {/* UserId — styled.div
+            Просто выводим ID пользователя */}
+        <UserId>ID: {user.id}</UserId>
+
+        {/* Немного более сложный JSX:
+            вызываем функцию прямо внутри JSX */}
+        {(() => {
+          // Получаем статистику пользователя из общей базы
+          const stats = getUserStats(user.id);
+
+          // Если статистика есть — отображаем её
+          return stats ? (
+            <div style={{ marginTop: '10px', fontSize: '12px', color: '#666' }}>
+              <div>Игр сыграно: {stats.gamesPlayed}</div>
+              <div>
+                Рекорд баланса: {stats.totalBalance.toLocaleString()}
+              </div>
+              <div>
+                Всего кликов: {stats.totalClicks.toLocaleString()}
+              </div>
+            </div>
+          ) : null; // Если статистики нет — ничего не рендерим
+        })()}
+      </UserInfo>
+    )}
+
+    {/* СТАТИСТИКА ИГРЫ 
+/}
+
+    {/* Header — grid-контейнер для карточек */}
+    <Header>
+
+      {/* Карточка баланса */}
+      <Card>
+        <CardTitle>Баланс</CardTitle>
+        {/* gameState.balance — реактивное состояние */}
+        <CardValue>
+          {gameState.balance.toLocaleString()}
+        </CardValue>
+      </Card>
+
+      {/* Карточка кликов */}
+      <Card>
+        <CardTitle>Клики</CardTitle>
+        <CardValue>
+          {gameState.clicks.toLocaleString()}
+        </CardValue>
+      </Card>
+
+    </Header>
+
+    {/* ========================
+        ГЛАВНАЯ КНОПКА КЛИКА
+        ======================== */}
+
+    {/* Контейнер для центрирования кнопки */}
+    <MainButtonContainer>
+
+      {/* ClickButton — styled.button
+          $isAnimating — проп ТОЛЬКО для стилей */}
+      <ClickButton
+        onClick={handleClick}              // обработчик клика
+        $isAnimating={isButtonAnimating}   // влияет на scale
+      >
+        <ButtonText>НАЖМИ!</ButtonText>
+      </ClickButton>
+
+    </MainButtonContainer>
+
+    {/* ========================
+        УЛУЧШЕНИЯ
+        ======================== */}
+
+    <Upgrades>
+
+      {/* Улучшение силы клика */}
+      <UpgradeCard>
+        <UpgradeTitle>Сила клика</UpgradeTitle>
+
+        <UpgradeInfo>
+          <span>Уровень: {gameState.clickPowerLevel}</span>
+          <span>Сила: {gameState.clickPower}</span>
+        </UpgradeInfo>
+
+        <UpgradeInfo>
+          <span>
+            Стоимость: {getClickPowerCost().toLocaleString()}
+          </span>
+        </UpgradeInfo>
+
+        {/* Кнопка улучшения */}
+        <UpgradeButton
+          onClick={upgradeClickPower}
+          disabled={gameState.balance < getClickPowerCost()}
+        >
+          Улучшить
+        </UpgradeButton>
+      </UpgradeCard>
+
+      {/* Улучшение автокликера */}
+      <UpgradeCard>
+        <UpgradeTitle>Автокликер</UpgradeTitle>
+
+        <UpgradeInfo>
+          <span>Уровень: {gameState.autoClickerLevel}</span>
+          <span>Доход/сек: {gameState.autoClicker}</span>
+        </UpgradeInfo>
+
+        <UpgradeInfo>
+          <span>
+            Стоимость: {getAutoClickerCost().toLocaleString()}
+          </span>
+        </UpgradeInfo>
+
+        <UpgradeButton
+          onClick={buyAutoClicker}
+          disabled={gameState.balance < getAutoClickerCost()}
+        >
+          Купить
+        </UpgradeButton>
+      </UpgradeCard>
+
+    </Upgrades>
+  </Container>
+);
+
 }

@@ -1,14 +1,22 @@
 // app/api/users/stats/route.ts
 
+
+// Использование хранилища - Vercel KV (облачный Redis).
+
+// kv — это очень быстрая база данных, где данные хранятся по ключу.
+
 import { kv } from '@vercel/kv';
 import { NextResponse } from 'next/server';
 
+// Ключ в KV | Один ключ — вся база игроков
 const USERS_KEY = 'miniClickerUsersData';
 
 // Важно: отключаем любые попытки кэшировать этот эндпоинт на уровне Next.js
-// чтобы рейтинг и статистика всегда брались из актуального KV-хранилища.
+// чтобы рейтинг и статистика всегда брались из актуального KV-хранилища, так как Next.js по умолчанию может кэшировать API.
 export const dynamic = 'force-dynamic';
 
+
+// Абсолютно совпадает с клиентом
 interface UserStats {
   userId: number;
   username?: string;
@@ -32,15 +40,16 @@ export async function GET() {
   try {
     let data = await kv.get<UsersData>(USERS_KEY);
 
+    // Инициализация базы | Добавляем
     if (!data || !data.users) {
       data = { users: {}, lastUpdated: new Date().toISOString() };
       await kv.set(USERS_KEY, data);
     }
-
+    // values(obj) - Превращение в массив | sort() работает только с массивами
     // Сортируем всех игроков по totalBalance (убывание) — теперь возвращаем ВСЕХ, а не только топ-10
     const allPlayers = Object.values(data.users).sort((a, b) => b.totalBalance - a.totalBalance);
 
-    // Возвращаем полный объект, чтобы клиент мог использовать напрямую (упрощаем loadUsersData)
+    // Возвращаем полный объект, чтобы клиент мог использовать напрямую 
     // Но для совместимости сохраняем старый формат
     const response = NextResponse.json({
       data: {
@@ -61,28 +70,44 @@ export async function GET() {
 
 export async function POST(request: Request) {
   try {
-    const body = await request.json();
-    const { username, firstName, lastName, gameStats } = body ?? {};
+    const body = await request.json(); // Тело запроса
+    const { username, firstName, lastName, gameStats } = body ?? {}; // Деструктуризация
 
-    // Дополнительная защита от некорректного тела запроса
+    // Дополнительная защита от некорректного тела запроса / существует и является объектом.
     const safeGameStats =
       gameStats && typeof gameStats === 'object'
         ? gameStats
         : {};
 
-    // ИСПРАВЛЕНО: Берём userId из кастомного заголовка, который клиент уже отправляет
+// Получаем заголовок запроса x-telegram-user-id. В нём клиент (Telegram бот) передаёт уникальный ID пользователя.
     const userIdHeader = request.headers.get('x-telegram-user-id');
+    
+    // Проверяем что есть
     if (!userIdHeader || isNaN(Number(userIdHeader))) {
       return NextResponse.json({ error: 'Invalid or missing user ID' }, { status: 400 });
     }
     const userIdStr = userIdHeader; // уже строка
     const userId = Number(userIdStr);
 
+
+    // Извлекаем всю базу игроков из Vercel KV по ключу USERS_KEY.
+    // Если данных ещё нет (null) или объект users отсутствует — создаём пустую базу:
     let data = await kv.get<UsersData>(USERS_KEY);
+
+
+    
     if (!data || !data.users) {
       data = { users: {}, lastUpdated: new Date().toISOString() };
     }
 
+
+    /*
+    Проверяем, есть ли уже игрок с этим userIdStr в базе.
+
+Если есть — используем существующие данные.
+
+Если нет — создаём нового пользователя с начальными значениями:
+    */
     const existing = data.users[userIdStr] || {
       userId,
       username,
@@ -119,8 +144,11 @@ export async function POST(request: Request) {
     data.users[userIdStr] = updatedStats;
     data.lastUpdated = new Date().toISOString();
 
+
+    // Сохраняем всю базу игроков обратно в Vercel KV. Это асинхронная операция: данные теперь будут доступны при следующем GET-запросе.
     await kv.set(USERS_KEY, data);
 
+    // Возвращаем клиенту JSON: { success: true }, чтобы сообщить, что данные успешно сохранены.
     return NextResponse.json({ success: true });
   } catch (error) {
     console.error('KV POST error:', error);
